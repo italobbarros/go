@@ -305,6 +305,52 @@ func TestQuery(t *testing.T) {
 	}
 }
 
+func TestQueryWithScanStruct(t *testing.T) {
+	db := newTestDB(t, "people")
+	defer closeDB(t, db)
+	prepares0 := numPrepares(t, db)
+	rows, err := db.Query("SELECT|people|age,name|")
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	defer rows.Close()
+	type row struct {
+		Age  int    `json:"age"`
+		Name string `json:"name"`
+	}
+	var got []row
+	for rows.Next() {
+		r := &row{}
+		err = rows.ScanStruct(r)
+		fmt.Println(r)
+		if err != nil {
+			t.Fatalf("ScanStruct: %v", err)
+		}
+		got = append(got, *r)
+	}
+	err = rows.Err()
+	if err != nil {
+		t.Fatalf("Err: %v", err)
+	}
+	want := []row{
+		{Age: 1, Name: "Alice"},
+		{Age: 2, Name: "Bob"},
+		{Age: 3, Name: "Chris"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("mismatch.\n got: %#v\nwant: %#v", got, want)
+	}
+
+	// And verify that the final rows.Next() call, which hit EOF,
+	// also closed the rows connection.
+	if n := db.numFreeConns(); n != 1 {
+		t.Fatalf("free conns after query hitting EOF = %d; want 1", n)
+	}
+	if prepares := numPrepares(t, db) - prepares0; prepares != 1 {
+		t.Errorf("executed %d Prepare statements; want 1", prepares)
+	}
+}
+
 // TestQueryContext tests canceling the context while scanning the rows.
 func TestQueryContext(t *testing.T) {
 	db := newTestDB(t, "people")

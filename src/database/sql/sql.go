@@ -3354,6 +3354,91 @@ func (rs *Rows) Scan(dest ...any) error {
 	return nil
 }
 
+func (rs *Rows) ScanStruct(s any) error {
+	t := reflect.TypeOf(s)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return fmt.Errorf("ScanStruct: is invalid %s", t)
+	}
+	v := reflect.New(t)
+	columns, err := rs.Columns()
+	if err != nil {
+		return err
+	}
+	columnValues := make([]any, len(columns))
+	for i := range columnValues {
+		var value any
+		columnValues[i] = &value
+	}
+	err = rs.Scan(columnValues...)
+	if err != nil {
+		return err
+	}
+	fmt.Println("values:", columnValues)
+	for i := 0; i < t.NumField(); i++ {
+		columnName, ok := t.Field(i).Tag.Lookup("json")
+		if !ok {
+			continue
+		}
+		columnIndex := -1
+		for j, col := range columns {
+			if columnName == col {
+				columnIndex = j
+				break
+			}
+		}
+		if columnIndex == -1 {
+			continue
+		}
+		columnValue := reflect.ValueOf(columnValues[columnIndex]).Elem()
+
+		field := v.Elem().Field(i)
+		convertStruct(field, columnValue)
+	}
+	reflect.ValueOf(s).Elem().Set(v.Elem())
+	return nil
+}
+
+func convertStruct(field reflect.Value, columnValue reflect.Value) error {
+	switch field.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		r, ok := columnValue.Interface().(int64)
+		if !ok {
+			return fmt.Errorf("Erro ao converter tipo para int")
+		}
+		field.SetInt(r)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		r, ok := columnValue.Interface().(uint64)
+		if !ok {
+			return fmt.Errorf("Erro ao converter tipo para uint")
+		}
+
+		field.SetUint(r)
+	case reflect.Float32, reflect.Float64:
+		r, ok := columnValue.Interface().(float64)
+		if !ok {
+			return fmt.Errorf("Erro ao converter tipo para float")
+		}
+		field.SetFloat(r)
+	case reflect.String:
+		r, ok := columnValue.Interface().(string)
+		if !ok {
+			return fmt.Errorf("Erro ao converter tipo para string")
+		}
+		field.SetString(r)
+	case reflect.Ptr:
+		newField := reflect.New(field.Type().Elem())
+		err := convertStruct(newField.Elem(), columnValue)
+		if err != nil {
+			return err
+		}
+		field.Set(newField)
+	}
+	return nil
+}
+
 // closemuRUnlockIfHeldByScan releases any closemu.RLock held open by a previous
 // call to Scan with *RawBytes.
 func (rs *Rows) closemuRUnlockIfHeldByScan() {
