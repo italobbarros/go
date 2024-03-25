@@ -3372,11 +3372,10 @@ func (rs *Rows) ScanStruct(s any) error {
 		var value any
 		columnValues[i] = &value
 	}
-	err = rs.Scan(columnValues...)
-	if err != nil {
+
+	if err = rs.Scan(columnValues...); err != nil {
 		return err
 	}
-	fmt.Println("values:", columnValues)
 	for i := 0; i < t.NumField(); i++ {
 		columnName, ok := t.Field(i).Tag.Lookup("json")
 		if !ok {
@@ -3393,9 +3392,9 @@ func (rs *Rows) ScanStruct(s any) error {
 			continue
 		}
 		columnValue := reflect.ValueOf(columnValues[columnIndex]).Elem()
-
-		field := v.Elem().Field(i)
-		convertStruct(field, columnValue)
+		if err = convertStruct(v.Elem().Field(i), columnValue); err != nil {
+			return err
+		}
 	}
 	reflect.ValueOf(s).Elem().Set(v.Elem())
 	return nil
@@ -3414,7 +3413,6 @@ func convertStruct(field reflect.Value, columnValue reflect.Value) error {
 		if !ok {
 			return fmt.Errorf("Erro ao converter tipo para uint")
 		}
-
 		field.SetUint(r)
 	case reflect.Float32, reflect.Float64:
 		r, ok := columnValue.Interface().(float64)
@@ -3425,7 +3423,12 @@ func convertStruct(field reflect.Value, columnValue reflect.Value) error {
 	case reflect.String:
 		r, ok := columnValue.Interface().(string)
 		if !ok {
-			return fmt.Errorf("Erro ao converter tipo para string")
+			r, ok := columnValue.Interface().([]byte)
+			if !ok {
+				return fmt.Errorf("Erro ao converter tipo para string")
+			}
+			field.SetString(string(r))
+			break
 		}
 		field.SetString(r)
 	case reflect.Ptr:
